@@ -69,6 +69,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Password Minimum Length
+    |--------------------------------------------------------------------------
+    |
+    | Minimum number of characters accepted for user passwords. You can
+    | raise it per environment with the PASSWORD_MIN_LENGTH variable.
+    |
+    */
+
+    'password_min_length' => (int) env('PASSWORD_MIN_LENGTH', 8),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |
