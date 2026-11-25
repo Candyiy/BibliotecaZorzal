@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -55,6 +56,15 @@ class Plan extends Model
             'cantidad_libros' => 'integer',
             'beneficios' => 'array',
         ];
+    }
+
+    public static function planesActivosPorLibro(): Collection
+    {
+        return static::query()
+            ->where('estado', self::ESTADO_ACTIVA)
+            ->where('modalidad', self::MODALIDAD_LIBRO)
+            ->get()
+            ->keyBy('libro_id');
     }
 
     public function estaActivo(): bool

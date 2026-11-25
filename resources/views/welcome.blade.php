@@ -46,12 +46,6 @@
                 <div class="z-public-hero">
                     <div class="z-public-copy">
                         <h1 class="z-public-title">Biblioteca<br>con alma Zorzal</h1>
-                        <!--
-                        <p class="z-public-lede">
-                            Un catálogo para encontrar títulos, consultar licencias y leer en PDF.
-                            ZORZEL junta la biblioteca y la suscripción en un mismo lugar.
-                        </p>
-                        -->
 
                         <div class="z-public-actions">
                             @auth
@@ -69,12 +63,6 @@
                                 @endif
                             @endauth
                         </div>
-
-                        <!--
-                        <p class="z-public-note">
-                            <x-z.icon name="library" class="size-4" />
-                            Catálogo · Licencias · Lectura PDF
-                        </p> -->
                     </div>
 
                     <aside class="z-showcase" aria-label="Una vista del catálogo">
@@ -150,12 +138,12 @@
                                 <footer class="z-rate-card-foot">
                                     @auth
                                         <a href="{{ route('planes.index') }}" wire:navigate class="btn btn-secondary z-rate-cta">
-                                            Elegir este plan
+                                            {{ $plan->esPorDias() ? 'Pedir préstamo' : 'Elegir este plan' }}
                                             <x-z.icon name="arrow-right" class="size-4" />
                                         </a>
                                     @else
                                         <a href="{{ route('register') }}" wire:navigate class="btn btn-primary z-rate-cta">
-                                            Suscribirme
+                                            {{ $plan->esPorDias() ? 'Préstamo' : 'Suscribirme' }}
                                             <x-z.icon name="arrow-right" class="size-4" />
                                         </a>
                                     @endauth

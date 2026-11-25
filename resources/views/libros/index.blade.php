@@ -49,6 +49,7 @@
                             && ! $prestamoDelUsuario->estaVencido()
                             && ! $usuario->tieneAccesoLimitadoPorPrestamos()
                         : $puedeLeer && $incluidoEnPlan;
+                    $ctaEsPrestamo = ! $usaContador && $planesPorLibro->has($libro->id);
                 @endphp
                 <article class="z-record">
                     <div class="z-record-top">
@@ -184,9 +185,9 @@
                         @elseif ($libro->archivo_pdf)
                             <a href="{{ route('planes.index') }}"
                                class="btn btn-secondary btn-sm"
-                               aria-label="Suscríbete para leer {{ $libro->titulo }}">
+                               aria-label="{{ $ctaEsPrestamo ? 'Pedir préstamo de' : 'Suscríbete para leer' }} {{ $libro->titulo }}">
                                 <x-z.icon name="arrow-right" class="size-4" />
-                                Suscribirme
+                                {{ $ctaEsPrestamo ? 'Préstamo' : 'Suscribirme' }}
                             </a>
                         @endif
 

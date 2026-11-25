@@ -155,6 +155,42 @@ class PlanTest extends TestCase
             ->assertSee('por 12 días');
     }
 
+    public function test_el_plan_por_libro_muestra_el_boton_prestamo_en_lista_modal_y_confirmacion(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = Libro::create([
+            'titulo' => 'Libro con préstamo por días',
+            'descripcion' => 'Descripción del libro.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+        $plan = Plan::create([
+            'tipo' => 'dias',
+            'duracion_dias' => 10,
+            'precio' => '4.99',
+            'modalidad' => Plan::MODALIDAD_LIBRO,
+            'libro_id' => $libro->id,
+        ]);
+
+        $this->actingAs($cliente)
+            ->get(route('planes.index'))
+            ->assertOk()
+            ->assertSee('Préstamo')
+            ->assertSee('Confirmar préstamo')
+            ->assertDontSee('Suscribirme')
+            ->assertDontSee('Confirmar suscripción');
+
+        $this->actingAs($cliente)->post(route('planes.suscribir', $plan))->assertRedirect();
+
+        $suscripcion = $cliente->suscripciones()->firstOrFail();
+
+        $this->actingAs($cliente)
+            ->get(route('planes.confirmacion', $suscripcion))
+            ->assertOk()
+            ->assertSee('Préstamo confirmado')
+            ->assertSee('Préstamo por días')
+            ->assertDontSee('Suscripción confirmada');
+    }
+
     public function test_los_dias_de_un_plan_por_libro_estan_entre_1_y_365(): void
     {
         $usuario = User::factory()->create();

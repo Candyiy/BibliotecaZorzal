@@ -1,13 +1,15 @@
-<x-layouts::app :title="__('Suscripción confirmada')">
+@php $esPrestamo = $suscripcion->plan->esPorDias(); @endphp
+
+<x-layouts::app :title="$esPrestamo ? __('Préstamo confirmado') : __('Suscripción confirmada')">
     <div class="z-page">
         <x-z.page-header
-            title="Suscripción confirmada"
-            subtitle="Tu plan ya está listo para usar."
+            title="{{ $esPrestamo ? 'Préstamo confirmado' : 'Suscripción confirmada' }}"
+            subtitle="{{ $esPrestamo ? 'Tu préstamo ya está listo para usar.' : 'Tu plan ya está listo para usar.' }}"
         />
 
         <div class="z-card max-w-xl">
-            <p class="z-card-title">Plan {{ $suscripcion->plan->tipoEtiqueta() }}</p>
-            <p class="z-card-note">Estos son los datos de tu suscripción.</p>
+            <p class="z-card-title">{{ $esPrestamo ? 'Préstamo por días' : 'Plan '.$suscripcion->plan->tipoEtiqueta() }}</p>
+            <p class="z-card-note">{{ $esPrestamo ? 'Estos son los datos de tu préstamo.' : 'Estos son los datos de tu suscripción.' }}</p>
 
             <dl class="mt-5 grid gap-3">
                 <div class="flex flex-wrap items-center justify-between gap-2">

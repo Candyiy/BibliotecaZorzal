@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Libro;
 use App\Models\Plan;
 use App\Models\Promocion;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,7 +26,7 @@ class WelcomeTest extends TestCase
 
         $this->get(route('home'))
             ->assertOk()
-            ->assertSee('Un catálogo para encontrar títulos')
+            ->assertSee('con alma Zorzal')
             ->assertSee('El estante')
             ->assertSee('Tarifas de la biblioteca')
             ->assertSee('Mensual')
@@ -33,6 +34,29 @@ class WelcomeTest extends TestCase
             ->assertSee('7,99')
             ->assertSee('Bienvenida · − 20,00 %')
             ->assertSee('Suscribirme');
+    }
+
+    public function test_la_presentacion_muestra_prestamo_en_los_planes_por_libro(): void
+    {
+        $libro = Libro::create([
+            'titulo' => 'Libro por días',
+            'descripcion' => 'Descripción del libro.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+
+        Plan::create([
+            'tipo' => 'dias',
+            'duracion_dias' => 10,
+            'precio' => '4.99',
+            'modalidad' => Plan::MODALIDAD_LIBRO,
+            'libro_id' => $libro->id,
+        ]);
+
+        $this->get(route('home'))
+            ->assertOk()
+            ->assertSee('Préstamo')
+            ->assertSee('10 días')
+            ->assertDontSee('Suscribirme');
     }
 
     public function test_la_presentacion_no_muestra_planes_inactivos(): void

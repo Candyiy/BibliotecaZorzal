@@ -6,6 +6,7 @@ use App\Http\Concerns\FiltraPorBusqueda;
 use App\Models\Autor;
 use App\Models\Categoria;
 use App\Models\Libro;
+use App\Models\Plan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -93,11 +94,14 @@ class LibroController extends Controller
             ],
         ];
 
+        $planesPorLibro = Plan::planesActivosPorLibro();
+
         return view('libros.index', compact(
             'libros',
             'autores',
             'categorias',
             'opcionesFiltros',
+            'planesPorLibro',
         ));
     }
 

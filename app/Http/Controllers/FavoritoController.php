@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Concerns\FiltraPorBusqueda;
 use App\Models\Favorito;
 use App\Models\Libro;
+use App\Models\Plan;
 use Illuminate\Http\Request;
 
 class FavoritoController extends Controller
@@ -27,7 +28,9 @@ class FavoritoController extends Controller
             ->paginate(12)
             ->withQueryString();
 
-        return view('favoritos.index', compact('favoritos'));
+        $planesPorLibro = Plan::planesActivosPorLibro();
+
+        return view('favoritos.index', compact('favoritos', 'planesPorLibro'));
     }
 
     public function store(Request $request, Libro $libro)

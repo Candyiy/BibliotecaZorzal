@@ -96,6 +96,28 @@ class FavoritoTest extends TestCase
         );
     }
 
+    public function test_un_favorito_con_plan_por_dias_muestra_prestamo_en_lugar_de_suscribirme(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicencia('Favorito con plan por días');
+        $libro->update(['archivo_pdf' => 'libros/favorito-por-dias.pdf']);
+        $cliente->favoritos()->create(['libro_id' => $libro->id]);
+
+        Plan::create([
+            'tipo' => 'dias',
+            'duracion_dias' => 10,
+            'precio' => '4.99',
+            'modalidad' => Plan::MODALIDAD_LIBRO,
+            'libro_id' => $libro->id,
+        ]);
+
+        $this->actingAs($cliente)
+            ->get(route('favoritos.index'))
+            ->assertOk()
+            ->assertSee('Préstamo')
+            ->assertDontSee('Suscribirme');
+    }
+
     public function test_un_favorito_fuera_del_plan_muestra_cambiar_plan_en_lugar_de_leer(): void
     {
         $cliente = User::factory()->cliente()->create();

@@ -104,6 +104,27 @@ class LibroTest extends TestCase
             ->assertDontSee('href="'.route('libros.leer', $libro).'?v=', false);
     }
 
+    public function test_lista_muestra_prestamo_cuando_el_libro_tiene_un_plan_por_dias(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicencia('Libro con plan por días');
+        $libro->update(['archivo_pdf' => 'libros/plan-por-dias.pdf']);
+
+        Plan::create([
+            'tipo' => 'dias',
+            'duracion_dias' => 10,
+            'precio' => '4.99',
+            'modalidad' => Plan::MODALIDAD_LIBRO,
+            'libro_id' => $libro->id,
+        ]);
+
+        $this->actingAs($cliente)
+            ->get(route('libros.index'))
+            ->assertOk()
+            ->assertSee('Préstamo')
+            ->assertDontSee('Suscribirme');
+    }
+
     public function test_un_cliente_con_suscripcion_activa_puede_leer_y_descargar(): void
     {
         $cliente = User::factory()->cliente()->create();

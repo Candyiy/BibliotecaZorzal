@@ -26,7 +26,7 @@
         @if ($suscripcionActiva)
             <div class="z-card flex flex-wrap items-center justify-between gap-4">
                 <div>
-                    <p class="z-card-title">Tu suscripción activa</p>
+                    <p class="z-card-title">{{ $suscripcionActiva->plan?->esPorDias() ? 'Tu préstamo activo' : 'Tu suscripción activa' }}</p>
                     <p class="z-card-note">
                         Plan {{ $suscripcionActiva->plan ? ($suscripcionActiva->plan->esPorDias() ? 'por días' : $suscripcionActiva->plan->tipoEtiqueta()) : '—' }} ·
                         {{ $suscripcionActiva->plan?->modalidadEtiqueta() ?? '—' }} ·
@@ -135,9 +135,13 @@
                                                 command="show-modal"
                                                 commandfor="suscribir-{{ $plan->id }}"
                                                 class="btn btn-secondary btn-sm"
-                                                aria-label="Confirmar suscripción a {{ $plan->tipoEtiqueta() }}">
+                                                aria-label="{{ $plan->esPorDias() ? 'Pedir préstamo de' : 'Confirmar suscripción a' }} {{ $plan->tipoEtiqueta() }}">
                                             <x-z.icon name="check" class="size-4" />
-                                            {{ $suscripcionActiva ? 'Cambiar a este plan' : 'Suscribirme' }}
+                                            @if ($plan->esPorDias())
+                                                Préstamo
+                                            @else
+                                                {{ $suscripcionActiva ? 'Cambiar a este plan' : 'Suscribirme' }}
+                                            @endif
                                         </button>
                                     @endif
                                     @if ($esStaff)
@@ -168,8 +172,8 @@
                 <dialog id="suscribir-{{ $plan->id }}" class="dialog-box">
                     <div class="dialog-head">
                         <div>
-                            <h2 class="dialog-title">Confirmar suscripción</h2>
-                            <p class="dialog-copy">Revisa los datos antes de continuar.</p>
+                            <h2 class="dialog-title">{{ $plan->esPorDias() ? 'Confirmar préstamo' : 'Confirmar suscripción' }}</h2>
+                            <p class="dialog-copy">{{ $plan->esPorDias() ? 'Revisa el plazo y el precio antes de continuar.' : 'Revisa los datos antes de continuar.' }}</p>
                         </div>
                         <button type="button" command="close" commandfor="suscribir-{{ $plan->id }}" class="z-icon-button" aria-label="Cerrar">
                             <x-z.icon name="x" class="size-4" />
@@ -230,7 +234,7 @@
 
                         <div class="form-actions">
                             <button type="button" command="close" commandfor="suscribir-{{ $plan->id }}" class="btn btn-secondary">Cancelar</button>
-                            <button type="submit" class="btn btn-primary">Confirmar suscripción</button>
+                            <button type="submit" class="btn btn-primary">{{ $plan->esPorDias() ? 'Confirmar préstamo' : 'Confirmar suscripción' }}</button>
                         </div>
                     </form>
                 </dialog>
