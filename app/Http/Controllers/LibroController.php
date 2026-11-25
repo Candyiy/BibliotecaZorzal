@@ -45,7 +45,7 @@ class LibroController extends Controller
             $consulta->whereNull('archivo_pdf');
         }
 
-        $libros = $consulta->with(['autores.libros', 'categorias', 'resenas.user', 'favoritos', 'licencias'])
+        $libros = $consulta->with(['autores.libros', 'categorias', 'resenas.user', 'favoritos', 'licencias.prestamos'])
             ->withAvg('resenas', 'puntaje')
             ->withCount('resenas')
             ->latest()
@@ -285,6 +285,36 @@ class LibroController extends Controller
         $usuario = $request->user();
 
         if (! $usuario->esCliente()) {
+            return;
+        }
+
+        if ($libro && $libro->usaContadorLecturas()) {
+            $prestamo = $libro->prestamoActivoDe($usuario->id);
+
+            if (! $prestamo) {
+                abort_if($libro->lecturasAgotadas(), 403, 'Este libro ya no tiene lecturas disponibles.');
+
+                abort_if(
+                    $libro->prestamoActivo() !== null,
+                    403,
+                    'Este libro está prestado a otro cliente. No estará disponible hasta que lo devuelva.'
+                );
+
+                abort(403, 'Necesitas un préstamo activo para leer este libro.');
+            }
+
+            abort_if(
+                $prestamo->estaVencido(),
+                403,
+                'Tu préstamo de este libro venció. Devuélvelo antes de volver a leerlo.'
+            );
+
+            abort_if(
+                $usuario->tieneAccesoLimitadoPorPrestamos(),
+                403,
+                $usuario->motivoAccesoLimitado()
+            );
+
             return;
         }
 

@@ -4,11 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Http\Concerns\FiltraPorBusqueda;
 use App\Models\Libro;
+use App\Models\Licencia;
+use App\Models\Pago;
 use App\Models\Prestamo;
 use App\Models\User;
 use App\Notifications\PrestamoRenovado;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class PrestamoController extends Controller
 {
@@ -44,7 +48,7 @@ class PrestamoController extends Controller
             ['licencia.libro' => ['titulo', 'descripcion'], 'usuario' => ['name', 'email']],
         );
 
-        $prestamos = $consulta->with(['usuario', 'licencia.libro'])
+        $prestamos = $consulta->with(['usuario', 'licencia.libro', 'pago'])
             ->orderBy('f_inicio', $orden)
             ->orderBy('id', $orden)
             ->paginate(12)
@@ -78,16 +82,24 @@ class PrestamoController extends Controller
     public function store(Request $request, Libro $libro)
     {
         $usuario = $request->user();
+        $libro->loadMissing('licencias');
+        $usaContador = $libro->usaContadorLecturas();
 
         abort_unless(
-            $usuario->esStaff() || $usuario->suscripcionActiva()->exists(),
+            $usuario->esStaff() || $usaContador || $usuario->suscripcionActiva()->exists(),
             403,
             'Necesitas una suscripción activa para solicitar préstamos.'
         );
 
         $this->asegurarDisponibilidad($usuario);
 
-        $licencia = $libro->licencias()->first();
+        abort_if(
+            $libro->lecturasAgotadas(),
+            403,
+            'Este libro ya no tiene lecturas disponibles.'
+        );
+
+        $licencia = $libro->licenciaParaPrestamo();
 
         abort_unless($licencia, 404, 'Este libro no tiene una licencia disponible.');
 
@@ -98,18 +110,49 @@ class PrestamoController extends Controller
         );
 
         $inicio = today();
+        $dias = $licencia->tieneContador()
+            ? $licencia->diasPrestamo()
+            : Prestamo::DIAS_PLAZO;
 
-        Prestamo::create([
-            'cantidad' => 1,
-            'f_inicio' => $inicio->toDateString(),
-            'f_finalizacion' => $inicio->copy()->addDays(Prestamo::DIAS_PLAZO)->toDateString(),
-            'estado' => Prestamo::ESTADO_ACTIVO,
-            'user_id' => $usuario->id,
-            'licencia_id' => $licencia->id,
-        ]);
+        DB::transaction(function () use ($usuario, $licencia, $inicio, $dias): void {
+            $licenciaBloqueada = Licencia::query()
+                ->whereKey($licencia->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            abort_if(
+                Prestamo::query()->activos()->where('licencia_id', $licencia->id)->exists(),
+                403,
+                'Este libro ya está prestado a otro cliente. No estará disponible hasta que lo devuelva.'
+            );
+
+            if ($licenciaBloqueada->tieneContador() && ! $licenciaBloqueada->consumirLectura()) {
+                abort(403, 'Este libro ya no tiene lecturas disponibles.');
+            }
+
+            $prestamo = Prestamo::create([
+                'cantidad' => 1,
+                'f_inicio' => $inicio->toDateString(),
+                'f_finalizacion' => $inicio->copy()->addDays($dias)->toDateString(),
+                'estado' => Prestamo::ESTADO_ACTIVO,
+                'user_id' => $usuario->id,
+                'licencia_id' => $licencia->id,
+            ]);
+
+            if ($licenciaBloqueada->tieneContador()) {
+                $prestamo->pago()->create([
+                    'user_id' => $usuario->id,
+                    'referencia' => 'PRE-'.$inicio->format('Ymd').'-'.Str::upper(Str::random(8)),
+                    'monto' => number_format($licenciaBloqueada->precioPrestamo(), 2, '.', ''),
+                    'metodo' => 'interno',
+                    'estado' => Pago::ESTADO_PAGADO,
+                    'f_pago' => $inicio->toDateString(),
+                ]);
+            }
+        });
 
         return redirect()->route('prestamos.index')
-            ->with('status', 'Préstamo solicitado correctamente. Devuélvelo en '.Prestamo::DIAS_PLAZO.' días.');
+            ->with('status', 'Préstamo solicitado correctamente. Devuélvelo en '.$dias.' días.');
     }
 
     public function devolver(Request $request, Prestamo $prestamo)

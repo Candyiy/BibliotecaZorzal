@@ -37,14 +37,34 @@
                 @php
                     $esFavorito = $libro->favoritos->contains('user_id', auth()->id());
                     $incluidoEnPlan = $esStaff || ! $suscripcionActiva?->plan || $suscripcionActiva->plan->incluyeLibro($libro);
-                    $puedeLeerLibro = $puedeLeer && $incluidoEnPlan;
+                    $usaContador = $libro->usaContadorLecturas();
+                    $prestamoActivo = $usaContador ? $libro->prestamoActivo() : null;
+                    $prestamoDelUsuario = $usaContador ? $libro->prestamoActivoDe(auth()->id()) : null;
+                    $lecturasAgotadas = $usaContador && $libro->lecturasAgotadas();
+                    $licenciaContador = $usaContador
+                        ? ($prestamoDelUsuario?->licencia ?? $prestamoActivo?->licencia ?? $libro->licenciaParaPrestamo())
+                        : null;
+                    $puedeLeerLibro = $usaContador
+                        ? $prestamoDelUsuario !== null
+                            && ! $prestamoDelUsuario->estaVencido()
+                            && ! $usuario->tieneAccesoLimitadoPorPrestamos()
+                        : $puedeLeer && $incluidoEnPlan;
                 @endphp
                 <article class="z-record">
                     <div class="z-record-top">
                         <x-z.badge variant="{{ $libro->archivo_pdf ? 'success' : 'warning' }}">
                             {{ $libro->archivo_pdf ? 'PDF disponible' : 'Sin PDF' }}
                         </x-z.badge>
-                        @if ($motivoBloqueo)
+                        @if ($usaContador)
+                            <x-z.badge variant="accent">Cantidad limitada</x-z.badge>
+                            @if ($lecturasAgotadas)
+                                <x-z.badge variant="danger">Sin lecturas</x-z.badge>
+                            @elseif ($prestamoActivo)
+                                <x-z.badge variant="warning">Prestado</x-z.badge>
+                            @else
+                                <x-z.badge variant="info">{{ $libro->lecturasDisponibles() }} lecturas</x-z.badge>
+                            @endif
+                        @elseif ($motivoBloqueo)
                             <x-z.badge variant="danger">Acceso bloqueado</x-z.badge>
                         @elseif (! $incluidoEnPlan)
                             <x-z.badge variant="accent">Fuera de tu plan</x-z.badge>
@@ -82,6 +102,11 @@
                             <x-z.icon name="calendar" class="size-4" />
                             {{ $libro->fecha_publicacion?->format('d/m/Y') ?? 'Fecha desconocida' }}
                         </span>
+                        @if ($licenciaContador)
+                            <span class="text-brass-ink tabular-nums">
+                                Préstamo {{ number_format($licenciaContador->precioPrestamo(), 2, ',', '.') }} · {{ $licenciaContador->diasPrestamo() }} días
+                            </span>
+                        @endif
                         @if ($libro->resenas_count > 0)
                             <span class="z-record-score">
                                 <span class="z-stars" aria-hidden="true">
@@ -98,7 +123,44 @@
                     </div>
 
                     <div class="z-record-actions">
-                        @if ($libro->archivo_pdf && $puedeLeerLibro)
+                        @if ($usaContador)
+                            @if ($libro->archivo_pdf && $puedeLeerLibro)
+                                <a href="{{ route('libros.leer', $libro) }}?v={{ md5($libro->archivo_pdf ?? '') }}"
+                                   class="btn btn-secondary btn-sm"
+                                   aria-label="Leer {{ $libro->titulo }}">
+                                    <x-z.icon name="eye" class="size-4" />
+                                    Leer
+                                </a>
+                                <span class="z-hint">Devuelve antes del {{ $prestamoDelUsuario->f_finalizacion?->format('d/m/Y') }}</span>
+                                <form method="POST" action="{{ route('prestamos.devolver', $prestamoDelUsuario) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-ghost btn-sm" aria-label="Devolver {{ $libro->titulo }}">
+                                        <x-z.icon name="rotate-ccw" class="size-4" />
+                                        Devolver
+                                    </button>
+                                </form>
+                            @elseif ($libro->archivo_pdf && $prestamoDelUsuario && $prestamoDelUsuario->estaVencido())
+                                <a href="{{ route('prestamos.index') }}"
+                                   class="btn btn-secondary btn-sm"
+                                   aria-label="Regularizar el acceso a {{ $libro->titulo }}">
+                                    <x-z.icon name="bookmark" class="size-4" />
+                                    Regularizar acceso
+                                </a>
+                            @elseif ($lecturasAgotadas)
+                                <span class="z-hint">No disponible</span>
+                            @elseif ($prestamoActivo)
+                                <span class="z-hint">Prestado a otro cliente</span>
+                            @elseif ($libro->archivo_pdf)
+                                <form method="POST" action="{{ route('prestamos.store', $libro) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-secondary btn-sm" aria-label="Pedir préstamo de {{ $libro->titulo }}">
+                                        <x-z.icon name="bookmark" class="size-4" />
+                                        Prestar
+                                    </button>
+                                </form>
+                                <span class="z-hint">Pagas {{ number_format($licenciaContador?->precioPrestamo() ?? 0, 2, ',', '.') }} y lo devuelves en {{ $licenciaContador?->diasPrestamo() ?? 24 }} días.</span>
+                            @endif
+                        @elseif ($libro->archivo_pdf && $puedeLeerLibro)
                             <a href="{{ route('libros.leer', $libro) }}?v={{ md5($libro->archivo_pdf ?? '') }}"
                                class="btn btn-secondary btn-sm"
                                aria-label="Leer {{ $libro->titulo }}">
@@ -133,7 +195,7 @@
                             Reseñar
                         </button>
 
-                        @if ($puedeLeerLibro && $libro->licencias->isNotEmpty())
+                        @if (! $usaContador && $puedeLeerLibro && $libro->licencias->isNotEmpty())
                             <form method="POST" action="{{ route('prestamos.store', $libro) }}">
                                 @csrf
                                 <button type="submit" class="btn btn-ghost btn-sm" aria-label="Solicitar préstamo de {{ $libro->titulo }}">

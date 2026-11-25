@@ -6,17 +6,21 @@
         />
 
         <div class="z-card max-w-xl">
-            <p class="z-card-title">Plan {{ ucfirst($suscripcion->plan->tipo) }}</p>
+            <p class="z-card-title">Plan {{ $suscripcion->plan->tipoEtiqueta() }}</p>
             <p class="z-card-note">Estos son los datos de tu suscripción.</p>
 
             <dl class="mt-5 grid gap-3">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <dt class="field-label">Plan</dt>
-                    <dd class="text-sm font-medium text-ink">{{ ucfirst($suscripcion->plan->tipo) }}</dd>
+                    <dd class="text-sm font-medium text-ink">{{ $suscripcion->plan->tipoEtiqueta() }}</dd>
                 </div>
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <dt class="field-label">Tipo</dt>
-                    <dd class="text-sm font-medium text-ink">{{ ucfirst($suscripcion->plan->tipo) }}</dd>
+                    <dd class="text-sm font-medium text-ink">{{ $suscripcion->plan->tipoEtiqueta() }}</dd>
+                </div>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <dt class="field-label">Duración</dt>
+                    <dd class="text-sm font-medium text-ink">{{ $suscripcion->plan->duracionEtiqueta() }}</dd>
                 </div>
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <dt class="field-label">Cobertura</dt>

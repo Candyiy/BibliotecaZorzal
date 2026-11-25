@@ -52,9 +52,7 @@ class PlanController extends Controller
         [$datos, $libros] = $this->prepararDatos($request);
 
         DB::transaction(function () use ($datos, $libros): void {
-            Plan::where('tipo', $datos['tipo'])
-                ->where('estado', Plan::ESTADO_ACTIVA)
-                ->update(['estado' => Plan::ESTADO_INACTIVA]);
+            $this->inactivarSolapados($datos, $libros);
 
             $plan = Plan::create($datos);
 
@@ -63,7 +61,7 @@ class PlanController extends Controller
             }
         });
 
-        return redirect()->route('planes.index')->with('status', 'Plan agregado correctamente. El plan anterior del mismo tipo quedó inactivo.');
+        return redirect()->route('planes.index')->with('status', 'Plan agregado correctamente. Los planes con distinta cobertura pueden coexistir.');
     }
 
     public function update(Request $request, Plan $plan)
@@ -73,10 +71,7 @@ class PlanController extends Controller
 
         DB::transaction(function () use ($plan, $datos, $libros, $estado): void {
             if ($estado === Plan::ESTADO_ACTIVA) {
-                Plan::where('tipo', $datos['tipo'])
-                    ->whereKeyNot($plan->id)
-                    ->where('estado', Plan::ESTADO_ACTIVA)
-                    ->update(['estado' => Plan::ESTADO_INACTIVA]);
+                $this->inactivarSolapados($datos, $libros, $plan);
             }
 
             $plan->update(array_merge($datos, ['estado' => $estado]));
@@ -108,11 +103,19 @@ class PlanController extends Controller
             'Este plan ya no está disponible.'
         );
 
+        abort_unless(
+            $request->user()->esStaff() || ! $request->user()->suscripcionActiva()->exists(),
+            403,
+            'Ya tienes un plan activo. Quítalo antes de elegir otro.'
+        );
+
         $inicio = today();
         $esPrueba = $plan->tienePrueba();
         $fin = $esPrueba
             ? $inicio->copy()->addDays((int) $plan->trial_dias)
-            : $inicio->copy()->addMonths($plan->duracionEnMeses());
+            : ($plan->esPorDias()
+                ? $inicio->copy()->addDays($plan->duracionEnDias())
+                : $inicio->copy()->addMonths($plan->duracionEnMeses()));
         $monto = $esPrueba ? '0.00' : number_format($plan->precioFinal(), 2, '.', '');
 
         $suscripcion = DB::transaction(function () use ($request, $plan, $inicio, $fin, $esPrueba, $monto): Suscripcion {
@@ -156,13 +159,15 @@ class PlanController extends Controller
 
     public function cancelar(Request $request, Plan $plan)
     {
+        abort_unless($request->user()->esStaff(), 403, 'Tu plan activo no se puede quitar.');
+
         $canceladas = $request->user()->suscripciones()
             ->where('plan_id', $plan->id)
             ->where('estado', 'activa')
             ->update(['estado' => 'cancelada']);
 
         $mensaje = $canceladas > 0
-            ? 'Has quitado tu plan '.ucfirst($plan->tipo).'.'
+            ? 'Has quitado tu plan '.$plan->tipoEtiqueta().'.'
             : 'No tienes un plan activo para quitar.';
 
         return redirect()->route('planes.index')->with('status', $mensaje);
@@ -173,7 +178,9 @@ class PlanController extends Controller
      */
     private function prepararDatos(Request $request, ?Plan $plan = null): array
     {
-        $validados = $this->validar($request);
+        $validados = $this->validar($request, $plan);
+
+        $validados['modalidad'] ??= $plan?->modalidad ?? Plan::MODALIDAD_GENERAL;
 
         $libros = array_key_exists('libros', $validados)
             ? array_values(array_unique(array_map('intval', $validados['libros'] ?? [])))
@@ -189,10 +196,13 @@ class PlanController extends Controller
         unset($validados['beneficios']);
 
         $validados['beneficios'] = $beneficios;
-        $validados['modalidad'] ??= $plan?->modalidad ?? Plan::MODALIDAD_GENERAL;
 
-        if ($validados['modalidad'] !== Plan::MODALIDAD_LIBRO) {
+        if ($validados['modalidad'] === Plan::MODALIDAD_LIBRO) {
+            $validados['tipo'] = Plan::TIPO_DIAS;
+            $validados['duracion_dias'] = (int) ($validados['duracion_dias'] ?? Plan::DIAS_POR_DEFECTO);
+        } else {
             $validados['libro_id'] = null;
+            $validados['duracion_dias'] = null;
         }
 
         $validados['cantidad_libros'] = match ($validados['modalidad']) {
@@ -204,10 +214,89 @@ class PlanController extends Controller
         return [$validados, $libros];
     }
 
-    private function validar(Request $request): array
+    /**
+     * Solo inactiva los planes activos que ofrecen exactamente la misma cobertura.
+     * Un plan general, uno por libro y otro por paquete pueden estar vigentes a
+     * la vez para que cualquier cliente pueda elegir entre ellos.
+     *
+     * @param  array<string, mixed>  $datos
+     * @param  array<int, int>|null  $libros
+     */
+    private function inactivarSolapados(array $datos, ?array $libros, ?Plan $plan = null): void
     {
-        return Validator::make($request->all(), [
-            'tipo' => ['required', Rule::in(['mensual', 'anual'])],
+        $modalidad = $datos['modalidad'] ?? Plan::MODALIDAD_GENERAL;
+
+        $consulta = Plan::query()
+            ->where('tipo', $datos['tipo'])
+            ->where('estado', Plan::ESTADO_ACTIVA)
+            ->where('modalidad', $modalidad);
+
+        if ($plan !== null) {
+            $consulta->whereKeyNot($plan->id);
+        }
+
+        if ($modalidad === Plan::MODALIDAD_LIBRO) {
+            $consulta->where('libro_id', $datos['libro_id'] ?? $plan?->libro_id)
+                ->where('duracion_dias', $datos['duracion_dias'] ?? $plan?->duracion_dias)
+                ->update(['estado' => Plan::ESTADO_INACTIVA]);
+
+            return;
+        }
+
+        if ($modalidad === Plan::MODALIDAD_PAQUETE) {
+            $librosPlan = collect($libros ?? $plan?->libros()->pluck('libro_id')->all() ?? [])
+                ->map(fn ($id): int => (int) $id)
+                ->sort()
+                ->values()
+                ->all();
+
+            $solapados = $consulta->with('libros')->get()
+                ->filter(function (Plan $otro) use ($librosPlan): bool {
+                    $actuales = $otro->libros->pluck('libro_id')
+                        ->map(fn ($id): int => (int) $id)
+                        ->sort()
+                        ->values()
+                        ->all();
+
+                    return $actuales === $librosPlan;
+                })
+                ->pluck('id')
+                ->all();
+
+            if ($solapados !== []) {
+                Plan::whereIn('id', $solapados)->update(['estado' => Plan::ESTADO_INACTIVA]);
+            }
+
+            return;
+        }
+
+        $consulta->update(['estado' => Plan::ESTADO_INACTIVA]);
+    }
+
+    private function validar(Request $request, ?Plan $plan = null): array
+    {
+        $datos = $request->all();
+        $modalidad = $request->input('modalidad', $plan?->modalidad ?? Plan::MODALIDAD_GENERAL);
+        $esPorLibro = $modalidad === Plan::MODALIDAD_LIBRO;
+
+        if ($esPorLibro) {
+            $datos['tipo'] = Plan::TIPO_DIAS;
+            $datos['duracion_dias'] ??= $plan?->duracion_dias ?? Plan::DIAS_POR_DEFECTO;
+        } else {
+            $datos['duracion_dias'] = null;
+
+            if ($datos['tipo'] === Plan::TIPO_DIAS) {
+                $datos['tipo'] = Plan::TIPO_MENSUAL;
+            }
+        }
+
+        return Validator::make($datos, [
+            'tipo' => [
+                'required',
+                Rule::in($esPorLibro
+                    ? [Plan::TIPO_DIAS]
+                    : [Plan::TIPO_MENSUAL, Plan::TIPO_ANUAL]),
+            ],
             'precio' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
             'estado' => ['sometimes', Rule::in([Plan::ESTADO_ACTIVA, Plan::ESTADO_INACTIVA])],
             'modalidad' => ['sometimes', Rule::in([
@@ -221,6 +310,9 @@ class PlanController extends Controller
                 'required_if:modalidad,'.Plan::MODALIDAD_LIBRO,
                 'exists:libros,id',
             ],
+            'duracion_dias' => $esPorLibro
+                ? ['required', 'integer', 'min:1', 'max:365']
+                : ['nullable', 'integer'],
             'libros' => ['nullable', 'array', 'required_if:modalidad,'.Plan::MODALIDAD_PAQUETE],
             'libros.*' => ['integer', 'exists:libros,id'],
             'trial_dias' => ['nullable', 'integer', 'min:0', 'max:365'],
@@ -231,12 +323,15 @@ class PlanController extends Controller
             'integer' => 'El campo :attribute debe ser un número entero.',
             'min' => 'El campo :attribute no puede ser menor que :min.',
             'max' => 'El campo :attribute no puede superar :max.',
-            'tipo.in' => 'Selecciona un tipo de plan válido.',
+            'tipo.in' => $esPorLibro
+                ? 'Un plan por libro solo puede ser por días.'
+                : 'Un plan de catálogo completo o paquete debe ser mensual o anual.',
             'precio.max' => 'El precio no puede superar los 99999999.99.',
             'estado.in' => 'Selecciona un estado válido.',
             'modalidad.in' => 'Selecciona una cobertura válida.',
             'libro_id.required_if' => 'Selecciona el libro del plan.',
             'libro_id.exists' => 'El libro seleccionado no es válido.',
+            'duracion_dias.required' => 'Indica cuántos días dura el acceso al libro.',
             'libros.required_if' => 'Selecciona al menos un libro para el paquete.',
             'libros.*.exists' => 'Uno de los libros seleccionados no es válido.',
             'trial_dias.max' => 'La prueba no puede superar los 365 días.',
@@ -247,6 +342,7 @@ class PlanController extends Controller
             'estado' => 'estado',
             'modalidad' => 'cobertura',
             'libro_id' => 'libro',
+            'duracion_dias' => 'días de acceso',
             'libros' => 'libros',
             'trial_dias' => 'días de prueba',
             'beneficios' => 'beneficios',

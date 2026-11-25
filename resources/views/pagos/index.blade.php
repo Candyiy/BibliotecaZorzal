@@ -41,10 +41,14 @@
                                 </td>
                             @endif
                             <td>
-                                @if ($pago->suscripcion?->plan)
+                                @if ($pago->prestamo?->licencia?->libro)
+                                    Préstamo: {{ $pago->prestamo->licencia->libro->titulo }}
+                                @elseif ($pago->suscripcion?->plan)
                                     Plan {{ ucfirst($pago->suscripcion->plan->tipo) }}
-                                @else
+                                @elseif ($pago->suscripcion_id)
                                     <span class="z-hint">Plan eliminado</span>
+                                @else
+                                    <span class="z-hint">Préstamo eliminado</span>
                                 @endif
                             </td>
                             <td class="tabular-nums">{{ number_format((float) $pago->monto, 2, ',', '.') }}</td>

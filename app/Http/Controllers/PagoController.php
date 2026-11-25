@@ -24,10 +24,10 @@ class PagoController extends Controller
             $consulta,
             $this->terminoDeBusqueda($request),
             ['referencia', 'estado'],
-            ['usuario' => ['name', 'email'], 'suscripcion.plan' => ['tipo']],
+            ['usuario' => ['name', 'email'], 'suscripcion.plan' => ['tipo'], 'prestamo.licencia.libro' => ['titulo']],
         );
 
-        $pagos = $consulta->with(['usuario', 'suscripcion.plan'])
+        $pagos = $consulta->with(['usuario', 'suscripcion.plan', 'prestamo.licencia.libro'])
             ->latest('f_pago')
             ->latest('id')
             ->paginate(12)
@@ -42,7 +42,7 @@ class PagoController extends Controller
 
         abort_unless($usuario->esStaff() || $pago->user_id === $usuario->id, 403);
 
-        $pago->load(['usuario', 'suscripcion.plan.libro', 'suscripcion.plan.libros']);
+        $pago->load(['usuario', 'suscripcion.plan.libro', 'suscripcion.plan.libros', 'prestamo.licencia.libro']);
 
         return view('pagos.show', compact('pago'));
     }

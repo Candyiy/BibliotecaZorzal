@@ -74,6 +74,119 @@ class PlanTest extends TestCase
         $this->assertDatabaseMissing('planes', ['id' => $plan->id]);
     }
 
+    public function test_el_formulario_de_planes_esta_organizado_y_la_cobertura_es_condicional(): void
+    {
+        $usuario = User::factory()->create();
+
+        $this->actingAs($usuario)
+            ->get(route('planes.index'))
+            ->assertOk()
+            ->assertSee('Duración y precio')
+            ->assertSee('¿A qué libros da acceso?', false)
+            ->assertSee('Detalles opcionales')
+            ->assertSee('data-plan-modalidad', false)
+            ->assertSee('data-plan-tipo', false)
+            ->assertSee('data-cobertura="libro"', false)
+            ->assertSee('data-cobertura="paquete"', false)
+            ->assertSee('data-duracion="dias"', false)
+            ->assertSee('Por días · elige el plazo')
+            ->assertSee('name="duracion_dias"', false)
+            ->assertSee('Solo «Un libro específico» se paga por días.')
+            ->assertSee('Crear plan');
+    }
+
+    public function test_un_plan_por_libro_se_contrata_por_dias_y_el_resto_sigue_siendo_mensual_o_anual(): void
+    {
+        $staff = User::factory()->admin()->create();
+        $cliente = User::factory()->cliente()->create();
+        $libro = Libro::create([
+            'titulo' => 'Libro por días',
+            'descripcion' => 'Descripción del libro por días.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+
+        $this->actingAs($staff)->post(route('planes.store'), [
+            'tipo' => 'mensual',
+            'precio' => '9.99',
+        ]);
+
+        $this->actingAs($staff)->post(route('planes.store'), [
+            'tipo' => 'anual',
+            'precio' => '99.00',
+            'modalidad' => Plan::MODALIDAD_PAQUETE,
+            'libros' => [$libro->id],
+        ]);
+
+        $this->actingAs($staff)->post(route('planes.store'), [
+            'tipo' => 'dias',
+            'duracion_dias' => 12,
+            'precio' => '4.99',
+            'modalidad' => Plan::MODALIDAD_LIBRO,
+            'libro_id' => $libro->id,
+        ]);
+
+        $general = Plan::where('modalidad', Plan::MODALIDAD_GENERAL)->firstOrFail();
+        $paquete = Plan::where('modalidad', Plan::MODALIDAD_PAQUETE)->firstOrFail();
+        $porLibro = Plan::where('modalidad', Plan::MODALIDAD_LIBRO)->firstOrFail();
+
+        $this->assertSame('mensual', $general->tipo);
+        $this->assertSame('1 mes', $general->duracionEtiqueta());
+        $this->assertSame('anual', $paquete->tipo);
+        $this->assertSame('1 año', $paquete->duracionEtiqueta());
+        $this->assertSame('dias', $porLibro->tipo);
+        $this->assertSame(12, $porLibro->duracion_dias);
+        $this->assertSame('Por días', $porLibro->tipoEtiqueta());
+        $this->assertSame('12 días', $porLibro->duracionEtiqueta());
+        $this->assertSame('por 12 días', $porLibro->periodoPrecioEtiqueta());
+
+        $this->actingAs($cliente)->post(route('planes.suscribir', $porLibro))->assertRedirect();
+
+        $suscripcion = $cliente->suscripciones()->firstOrFail();
+
+        $this->assertSame(today()->toDateString(), $suscripcion->f_inicio->toDateString());
+        $this->assertSame(today()->addDays(12)->toDateString(), $suscripcion->f_finalizacion->toDateString());
+
+        $this->actingAs($cliente)
+            ->get(route('planes.index'))
+            ->assertOk()
+            ->assertSee('Plan por días')
+            ->assertSee('Por días')
+            ->assertSee('12 días')
+            ->assertSee('por 12 días');
+    }
+
+    public function test_los_dias_de_un_plan_por_libro_estan_entre_1_y_365(): void
+    {
+        $usuario = User::factory()->create();
+        $libro = Libro::create([
+            'titulo' => 'Libro con plazo inválido',
+            'descripcion' => 'Descripción del libro.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+
+        $this->actingAs($usuario)
+            ->post(route('planes.store'), [
+                'tipo' => 'dias',
+                'duracion_dias' => 0,
+                'precio' => '4.99',
+                'modalidad' => Plan::MODALIDAD_LIBRO,
+                'libro_id' => $libro->id,
+            ])
+            ->assertSessionHasErrors('duracion_dias');
+
+        $this->actingAs($usuario)
+            ->post(route('planes.store'), [
+                'tipo' => 'dias',
+                'duracion_dias' => 366,
+                'precio' => '4.99',
+                'modalidad' => Plan::MODALIDAD_LIBRO,
+                'libro_id' => $libro->id,
+            ])
+            ->assertSessionHasErrors('duracion_dias');
+
+        $this->assertSame(0, Plan::count());
+    }
+
     public function test_los_errores_de_validacion_reabren_el_modal_correspondiente(): void
     {
         $usuario = User::factory()->create();
@@ -210,22 +323,52 @@ class PlanTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_suscribirse_a_otro_plan_cancela_la_suscripcion_activa(): void
+    public function test_el_cliente_suscrito_ve_otros_planes_pero_no_puede_cambiar_ni_quitar_el_suyo(): void
     {
-        $usuario = User::factory()->create();
+        $cliente = User::factory()->cliente()->create();
         $mensual = Plan::create(['tipo' => 'mensual', 'precio' => '9.99']);
         $anual = Plan::create(['tipo' => 'anual', 'precio' => '99.00']);
 
-        $this->actingAs($usuario)->post(route('planes.suscribir', $mensual));
-        $this->actingAs($usuario)->post(route('planes.suscribir', $anual));
+        $this->actingAs($cliente)->post(route('planes.suscribir', $mensual))->assertRedirect();
+
+        $this->actingAs($cliente)
+            ->get(route('planes.index'))
+            ->assertOk()
+            ->assertSee('Anual')
+            ->assertSee('Solo lectura')
+            ->assertSee('Tu plan activo no se puede cambiar.')
+            ->assertDontSee('Cambiar a este plan')
+            ->assertDontSee('Quitar plan')
+            ->assertDontSee('commandfor="quitar-plan"', false)
+            ->assertDontSee('<dialog id="quitar-plan"', false)
+            ->assertDontSee('commandfor="suscribir-'.$anual->id.'"', false)
+            ->assertDontSee('<dialog id="suscribir-'.$anual->id.'"', false);
+
+        $this->actingAs($cliente)
+            ->post(route('planes.suscribir', $anual))
+            ->assertForbidden();
+
+        $this->actingAs($cliente)
+            ->post(route('planes.cancelar', $mensual))
+            ->assertForbidden();
+
+        $this->assertSame('activa', $mensual->suscripciones()->first()->estado);
+        $this->assertSame(0, $anual->suscripciones()->count());
+        $this->assertSame(1, $cliente->suscripciones()->where('estado', 'activa')->count());
+    }
+
+    public function test_el_staff_si_puede_cambiar_de_plan(): void
+    {
+        $staff = User::factory()->admin()->create();
+        $mensual = Plan::create(['tipo' => 'mensual', 'precio' => '9.99']);
+        $anual = Plan::create(['tipo' => 'anual', 'precio' => '99.00']);
+
+        $this->actingAs($staff)->post(route('planes.suscribir', $mensual));
+        $this->actingAs($staff)->post(route('planes.suscribir', $anual));
 
         $this->assertSame('cancelada', $mensual->suscripciones()->first()->estado);
         $this->assertSame('activa', $anual->suscripciones()->first()->estado);
-        $this->assertSame(1, $usuario->suscripciones()->where('estado', 'activa')->count());
-        $this->assertSame(
-            today()->addYear()->toDateString(),
-            $anual->suscripciones()->first()->f_finalizacion->toDateString()
-        );
+        $this->assertSame(1, $staff->suscripciones()->where('estado', 'activa')->count());
     }
 
     public function test_un_usuario_puede_quitar_su_plan_activo(): void
@@ -272,6 +415,27 @@ class PlanTest extends TestCase
         $this->assertSame(1, $luis->suscripciones()->where('estado', 'activa')->count());
     }
 
+    public function test_dos_clientes_pueden_suscribirse_al_mismo_plan(): void
+    {
+        $ana = User::factory()->cliente()->create();
+        $luis = User::factory()->cliente()->create();
+        $plan = Plan::create(['tipo' => 'mensual', 'precio' => '9.99']);
+
+        $this->actingAs($ana)->post(route('planes.suscribir', $plan))->assertRedirect();
+
+        $this->actingAs($luis)
+            ->get(route('planes.index'))
+            ->assertOk()
+            ->assertSee('commandfor="suscribir-'.$plan->id.'"', false)
+            ->assertSee('<dialog id="suscribir-'.$plan->id.'"', false);
+
+        $this->actingAs($luis)->post(route('planes.suscribir', $plan))->assertRedirect();
+
+        $this->assertSame(1, $ana->suscripciones()->where('estado', 'activa')->count());
+        $this->assertSame(1, $luis->suscripciones()->where('estado', 'activa')->count());
+        $this->assertSame(2, $plan->suscripciones()->where('estado', 'activa')->count());
+    }
+
     public function test_el_modulo_de_planes_requiere_autenticacion(): void
     {
         $plan = Plan::create(['tipo' => 'mensual', 'precio' => '9.99']);
@@ -299,6 +463,87 @@ class PlanTest extends TestCase
         $this->assertSame(Plan::ESTADO_ACTIVA, $mensualNuevo->estado);
         $this->assertSame(1, Plan::where('tipo', 'mensual')->where('estado', Plan::ESTADO_ACTIVA)->count());
         $this->assertSame(1, Plan::where('tipo', 'anual')->where('estado', Plan::ESTADO_ACTIVA)->count());
+    }
+
+    public function test_planes_del_mismo_tipo_con_distinta_cobertura_pueden_elegirlos_clientes_distintos(): void
+    {
+        $staff = User::factory()->admin()->create();
+        $ana = User::factory()->cliente()->create();
+        $luis = User::factory()->cliente()->create();
+        $libro = Libro::create([
+            'titulo' => 'Libro del plan',
+            'descripcion' => 'Descripción del libro del plan.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+
+        $this->actingAs($staff)->post(route('planes.store'), [
+            'tipo' => 'mensual',
+            'precio' => '9.99',
+        ]);
+
+        $this->actingAs($staff)->post(route('planes.store'), [
+            'tipo' => 'dias',
+            'duracion_dias' => 15,
+            'precio' => '4.99',
+            'modalidad' => Plan::MODALIDAD_LIBRO,
+            'libro_id' => $libro->id,
+        ]);
+
+        $general = Plan::where('modalidad', Plan::MODALIDAD_GENERAL)->firstOrFail();
+        $porLibro = Plan::where('modalidad', Plan::MODALIDAD_LIBRO)->firstOrFail();
+
+        $this->assertSame(Plan::ESTADO_ACTIVA, $general->estado);
+        $this->assertSame(Plan::ESTADO_ACTIVA, $porLibro->estado);
+
+        $this->actingAs($ana)
+            ->get(route('planes.index'))
+            ->assertOk()
+            ->assertSee('commandfor="suscribir-'.$general->id.'"', false)
+            ->assertSee('commandfor="suscribir-'.$porLibro->id.'"', false);
+
+        $this->actingAs($ana)->post(route('planes.suscribir', $general))->assertRedirect();
+
+        $this->actingAs($luis)
+            ->get(route('planes.index'))
+            ->assertOk()
+            ->assertSee('commandfor="suscribir-'.$general->id.'"', false)
+            ->assertSee('commandfor="suscribir-'.$porLibro->id.'"', false);
+
+        $this->actingAs($luis)->post(route('planes.suscribir', $porLibro))->assertRedirect();
+
+        $this->assertSame($general->id, $ana->suscripciones()->where('estado', 'activa')->firstOrFail()->plan_id);
+        $this->assertSame($porLibro->id, $luis->suscripciones()->where('estado', 'activa')->firstOrFail()->plan_id);
+    }
+
+    public function test_planes_por_libro_distinto_conviven_y_el_mismo_libro_inactiva_el_anterior(): void
+    {
+        $staff = User::factory()->admin()->create();
+        $libroA = Libro::create([
+            'titulo' => 'Libro alfa',
+            'descripcion' => 'Descripción del libro alfa.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+        $libroB = Libro::create([
+            'titulo' => 'Libro beta',
+            'descripcion' => 'Descripción del libro beta.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+
+        foreach ([$libroA->id, $libroB->id, $libroA->id] as $indice => $libroId) {
+            $this->actingAs($staff)->post(route('planes.store'), [
+                'tipo' => 'dias',
+                'duracion_dias' => 15,
+                'precio' => number_format(9.99 + $indice, 2, '.', ''),
+                'modalidad' => Plan::MODALIDAD_LIBRO,
+                'libro_id' => $libroId,
+            ]);
+        }
+
+        $planes = Plan::where('modalidad', Plan::MODALIDAD_LIBRO)->orderBy('id')->get();
+
+        $this->assertSame(Plan::ESTADO_INACTIVA, $planes[0]->estado);
+        $this->assertSame(Plan::ESTADO_ACTIVA, $planes[1]->estado);
+        $this->assertSame(Plan::ESTADO_ACTIVA, $planes[2]->estado);
     }
 
     public function test_el_cliente_no_ve_planes_inactivos_ni_la_columna_estado(): void
@@ -415,7 +660,8 @@ class PlanTest extends TestCase
         $this->actingAs($usuario)
             ->post(route('planes.store'), [
                 '_modal' => 'crear',
-                'tipo' => 'mensual',
+                'tipo' => 'dias',
+                'duracion_dias' => 15,
                 'precio' => '9.99',
                 'modalidad' => Plan::MODALIDAD_LIBRO,
                 'libro_id' => $libroUno->id,
@@ -424,11 +670,12 @@ class PlanTest extends TestCase
             ])
             ->assertRedirect(route('planes.index'));
 
-        $planLibro = Plan::where('tipo', 'mensual')->firstOrFail();
+        $planLibro = Plan::where('tipo', 'dias')->firstOrFail();
 
         $this->assertSame(Plan::MODALIDAD_LIBRO, $planLibro->modalidad);
         $this->assertSame($libroUno->id, $planLibro->libro_id);
         $this->assertSame(1, $planLibro->cantidad_libros);
+        $this->assertSame(15, $planLibro->duracion_dias);
         $this->assertSame(7, $planLibro->trial_dias);
         $this->assertSame(['Lectura sin anuncios', 'Descargas offline'], $planLibro->beneficiosLista());
         $this->assertTrue($planLibro->tienePrueba());

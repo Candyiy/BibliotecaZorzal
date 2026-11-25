@@ -105,6 +105,8 @@
                         <tr>
                             <th scope="col">Libro</th>
                             <th scope="col">Licencia editorial</th>
+                            <th scope="col">Lecturas</th>
+                            <th scope="col">Préstamo</th>
                             <th scope="col">Estado</th>
                             <th scope="col" class="text-right">Acciones</th>
                         </tr>
@@ -115,6 +117,23 @@
                             <tr>
                                 <td><span class="cell-primary">{{ $licencia->libro->titulo }}</span></td>
                                 <td>{{ $editorial->nombre }}</td>
+                                <td>
+                                    @if ($licencia->tieneContador())
+                                        <x-z.badge variant="{{ $licencia->agotada() ? 'danger' : 'info' }}">
+                                            {{ $licencia->lecturasDisponibles() }} disponibles
+                                        </x-z.badge>
+                                    @else
+                                        <span class="z-hint">Sin límite</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if ($licencia->tieneContador())
+                                        <span class="cell-primary tabular-nums">{{ number_format($licencia->precioPrestamo(), 2, ',', '.') }}</span>
+                                        <span class="cell-sub">{{ $licencia->diasPrestamo() }} días para devolver</span>
+                                    @else
+                                        <span class="z-hint">Suscripción</span>
+                                    @endif
+                                </td>
                                 <td>@include('licencias.partials.estado', ['editorial' => $editorial])</td>
                                 <td>
                                     <div class="z-row-actions">
@@ -129,7 +148,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4">
+                                <td colspan="6">
                                     <x-z.vacio titulo="Todavía no hay licencias asignadas." copy="Usa «Asignar licencia» para crear la primera." />
                                 </td>
                             </tr>
@@ -311,6 +330,45 @@
                 </select>
             </div>
 
+            <div>
+                <label for="crear-licencia-contador" class="field-label">Cantidad de lecturas</label>
+                <input id="crear-licencia-contador"
+                       type="number"
+                       name="cantidad_lecturas"
+                       min="0"
+                       step="1"
+                       value="{{ old('cantidad_lecturas') }}"
+                       placeholder="Sin límite"
+                       class="field">
+                <p class="z-hint mt-1">Déjalo vacío para lectura libre con suscripción. Si pones un número, el libro se presta por separado y se bloquea al llegar a 0.</p>
+            </div>
+
+            <div>
+                <label for="crear-licencia-dias" class="field-label">Días de préstamo</label>
+                <input id="crear-licencia-dias"
+                       type="number"
+                       name="dias_prestamo"
+                       min="1"
+                       max="365"
+                       step="1"
+                       value="{{ old('dias_prestamo', 24) }}"
+                       class="field">
+                <p class="z-hint mt-1">Plazo que tiene el cliente para devolver el libro.</p>
+            </div>
+
+            <div>
+                <label for="crear-licencia-precio" class="field-label">Precio del préstamo</label>
+                <input id="crear-licencia-precio"
+                       type="number"
+                       name="precio_prestamo"
+                       min="0"
+                       max="99999999.99"
+                       step="0.01"
+                       value="{{ old('precio_prestamo', '0.00') }}"
+                       class="field">
+                <p class="z-hint mt-1">Se muestra en el catálogo y se registra como pago al pedir el préstamo.</p>
+            </div>
+
             <div class="form-actions">
                 <button type="button" command="close" commandfor="crear-licencia" class="btn btn-secondary">Cancelar</button>
                 <button type="submit" command="close" commandfor="crear-licencia" class="btn btn-primary">Asignar licencia</button>
@@ -355,6 +413,45 @@
                             <option value="{{ $editorial->id }}" @selected(old('licencia_editorial_id', $licencia->licencia_editorial_id) == $editorial->id)>{{ $editorial->nombre }}</option>
                         @endforeach
                     </select>
+                </div>
+
+                <div>
+                    <label for="editar-licencia-contador-{{ $licencia->id }}" class="field-label">Cantidad de lecturas</label>
+                    <input id="editar-licencia-contador-{{ $licencia->id }}"
+                           type="number"
+                           name="cantidad_lecturas"
+                           min="0"
+                           step="1"
+                           value="{{ old('cantidad_lecturas', $licencia->cantidad_lecturas) }}"
+                           placeholder="Sin límite"
+                           class="field">
+                    <p class="z-hint mt-1">Déjalo vacío para lectura libre con suscripción. Si pones un número, el libro se presta por separado y se bloquea al llegar a 0.</p>
+                </div>
+
+                <div>
+                    <label for="editar-licencia-dias-{{ $licencia->id }}" class="field-label">Días de préstamo</label>
+                    <input id="editar-licencia-dias-{{ $licencia->id }}"
+                           type="number"
+                           name="dias_prestamo"
+                           min="1"
+                           max="365"
+                           step="1"
+                           value="{{ old('dias_prestamo', $licencia->dias_prestamo) }}"
+                           class="field">
+                    <p class="z-hint mt-1">Plazo que tiene el cliente para devolver el libro.</p>
+                </div>
+
+                <div>
+                    <label for="editar-licencia-precio-{{ $licencia->id }}" class="field-label">Precio del préstamo</label>
+                    <input id="editar-licencia-precio-{{ $licencia->id }}"
+                           type="number"
+                           name="precio_prestamo"
+                           min="0"
+                           max="99999999.99"
+                           step="0.01"
+                           value="{{ old('precio_prestamo', $licencia->precio_prestamo) }}"
+                           class="field">
+                    <p class="z-hint mt-1">Se muestra en el catálogo y se registra como pago al pedir el préstamo.</p>
                 </div>
 
                 <div class="form-actions">

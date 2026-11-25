@@ -36,26 +36,33 @@
                     <dd class="cell-sub">{{ $pago->usuario?->email }}</dd>
                 </div>
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                    <dt class="field-label">Plan</dt>
+                    <dt class="field-label">Concepto</dt>
                     <dd class="text-sm font-medium text-ink">
-                        @if ($pago->suscripcion?->plan)
+                        @if ($pago->prestamo?->licencia?->libro)
+                            Préstamo: {{ $pago->prestamo->licencia->libro->titulo }}
+                            <span class="cell-sub">Devolución antes del {{ $pago->prestamo->f_finalizacion?->format('d/m/Y') ?? '—' }}</span>
+                        @elseif ($pago->suscripcion?->plan)
                             Plan {{ ucfirst($pago->suscripcion->plan->tipo) }}
                             <span class="cell-sub">{{ $pago->suscripcion->plan->modalidadEtiqueta() }} · {{ $pago->suscripcion->plan->coberturaEtiqueta() }}</span>
-                        @else
+                        @elseif ($pago->suscripcion_id)
                             <span class="z-hint">Plan eliminado</span>
+                        @else
+                            <span class="z-hint">Préstamo eliminado</span>
                         @endif
                     </dd>
                 </div>
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                    <dt class="field-label">Vigencia de la suscripción</dt>
-                    <dd class="text-sm font-medium text-ink">
-                        {{ $pago->suscripcion?->f_inicio?->format('d/m/Y') ?? '—' }} —
-                        {{ $pago->suscripcion?->f_finalizacion?->format('d/m/Y') ?? '—' }}
-                        @if ($pago->suscripcion?->esPrueba())
-                            <x-z.badge variant="accent">Prueba</x-z.badge>
-                        @endif
-                    </dd>
-                </div>
+                @if ($pago->suscripcion_id)
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <dt class="field-label">Vigencia de la suscripción</dt>
+                        <dd class="text-sm font-medium text-ink">
+                            {{ $pago->suscripcion?->f_inicio?->format('d/m/Y') ?? '—' }} —
+                            {{ $pago->suscripcion?->f_finalizacion?->format('d/m/Y') ?? '—' }}
+                            @if ($pago->suscripcion?->esPrueba())
+                                <x-z.badge variant="accent">Prueba</x-z.badge>
+                            @endif
+                        </dd>
+                    </div>
+                @endif
                 @if ($pago->suscripcion?->plan)
                     @foreach ($pago->suscripcion->plan->beneficiosLista() as $beneficio)
                         <div class="flex flex-wrap items-center justify-between gap-2">
@@ -67,7 +74,9 @@
             </dl>
 
             <div class="form-actions mt-6">
-                <a href="{{ route('planes.index') }}" wire:navigate class="btn btn-primary">Ver planes</a>
+                <a href="{{ $pago->prestamo_id ? route('prestamos.index') : route('planes.index') }}" wire:navigate class="btn btn-primary">
+                    {{ $pago->prestamo_id ? 'Ver préstamos' : 'Ver planes' }}
+                </a>
             </div>
         </div>
     </div>

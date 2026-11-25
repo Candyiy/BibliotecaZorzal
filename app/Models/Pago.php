@@ -20,6 +20,7 @@ class Pago extends Model
     protected $fillable = [
         'user_id',
         'suscripcion_id',
+        'prestamo_id',
         'referencia',
         'monto',
         'metodo',
@@ -43,5 +44,10 @@ class Pago extends Model
     public function suscripcion()
     {
         return $this->belongsTo(Suscripcion::class);
+    }
+
+    public function prestamo()
+    {
+        return $this->belongsTo(Prestamo::class);
     }
 }

@@ -33,6 +33,35 @@ trait CreaDatosBiblioteca
         return $libro;
     }
 
+    protected function crearLibroConLicenciaContada(
+        string $titulo,
+        int $cantidad,
+        int $dias = 24,
+        string $precio = '0.00',
+    ): Libro {
+        $libro = Libro::create([
+            'titulo' => $titulo,
+            'descripcion' => 'Descripción del libro con contador.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+
+        $editorial = LicenciaEditorial::create([
+            'nombre' => 'Licencia contada de '.$titulo,
+            'f_inicio' => today()->toDateString(),
+            'f_finalizacion' => today()->addYear()->toDateString(),
+        ]);
+
+        Licencia::create([
+            'libro_id' => $libro->id,
+            'licencia_editorial_id' => $editorial->id,
+            'cantidad_lecturas' => $cantidad,
+            'dias_prestamo' => $dias,
+            'precio_prestamo' => $precio,
+        ]);
+
+        return $libro;
+    }
+
     protected function activarSuscripcion(User $usuario, ?Plan $plan = null): Suscripcion
     {
         $plan ??= Plan::create([

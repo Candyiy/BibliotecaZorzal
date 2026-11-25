@@ -583,7 +583,8 @@ class LibroTest extends TestCase
         }
 
         $plan = Plan::create([
-            'tipo' => 'mensual',
+            'tipo' => 'dias',
+            'duracion_dias' => 15,
             'precio' => '9.99',
             'modalidad' => Plan::MODALIDAD_LIBRO,
             'libro_id' => $permitido->id,

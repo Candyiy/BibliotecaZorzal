@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -43,6 +44,74 @@ class Libro extends Model
     public function licencias()
     {
         return $this->hasMany(Licencia::class);
+    }
+
+    /**
+     * @return Collection<int, Licencia>
+     */
+    private function licenciasCargadas()
+    {
+        return $this->relationLoaded('licencias') ? $this->licencias : $this->licencias()->get();
+    }
+
+    public function usaContadorLecturas(): bool
+    {
+        return $this->licenciasCargadas()->contains(
+            fn (Licencia $licencia): bool => $licencia->tieneContador()
+        );
+    }
+
+    public function lecturasDisponibles(): int
+    {
+        return (int) $this->licenciasCargadas()->sum(
+            fn (Licencia $licencia): int => $licencia->lecturasDisponibles()
+        );
+    }
+
+    public function lecturasAgotadas(): bool
+    {
+        return $this->usaContadorLecturas() && $this->lecturasDisponibles() === 0;
+    }
+
+    public function licenciaParaPrestamo(): ?Licencia
+    {
+        $licencias = $this->licenciasCargadas();
+
+        return $licencias->first(
+            fn (Licencia $licencia): bool => $licencia->tieneContador() && ! $licencia->agotada()
+        ) ?? ($this->usaContadorLecturas() ? null : $licencias->first());
+    }
+
+    /**
+     * @return Collection<int, Prestamo>
+     */
+    public function prestamosActivos()
+    {
+        $licencias = $this->licenciasCargadas();
+        $ids = $licencias->pluck('id')->all();
+
+        if ($ids === []) {
+            return new Collection;
+        }
+
+        if ($licencias->contains(fn (Licencia $licencia): bool => $licencia->relationLoaded('prestamos'))) {
+            return $licencias->pluck('prestamos')
+                ->flatten()
+                ->filter(fn (Prestamo $prestamo): bool => $prestamo->estado === Prestamo::ESTADO_ACTIVO)
+                ->values();
+        }
+
+        return Prestamo::query()->activos()->whereIn('licencia_id', $ids)->get();
+    }
+
+    public function prestamoActivo(): ?Prestamo
+    {
+        return $this->prestamosActivos()->first();
+    }
+
+    public function prestamoActivoDe(int $userId): ?Prestamo
+    {
+        return $this->prestamosActivos()->firstWhere('user_id', $userId);
     }
 
     public function autores()

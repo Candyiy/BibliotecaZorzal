@@ -114,7 +114,7 @@
                                         <x-z.icon name="calendar" class="size-4" />
                                     </span>
                                     <div>
-                                        <h3 class="z-rate-name">{{ ucfirst($plan->tipo) }}</h3>
+                                        <h3 class="z-rate-name">{{ $plan->tipoEtiqueta() }}</h3>
                                         <p class="z-rate-term">{{ $plan->duracionEtiqueta() }} · {{ $plan->modalidadEtiqueta() }} · {{ $plan->coberturaEtiqueta() }}</p>
                                     </div>
                                 </header>
@@ -133,7 +133,7 @@
                                         @endif
                                         <span class="z-rate-now">{{ number_format($plan->precioFinal(), 2, ',', '.') }}</span>
                                     </p>
-                                    <p class="z-rate-period">{{ $plan->esAnual() ? 'por año' : 'por mes' }}</p>
+                                    <p class="z-rate-period">{{ $plan->periodoPrecioEtiqueta() }}</p>
 
                                     @if ($plan->tienePrueba())
                                         <p class="z-rate-promo">

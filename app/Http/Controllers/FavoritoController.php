@@ -22,7 +22,7 @@ class FavoritoController extends Controller
             ['libro' => ['titulo', 'descripcion'], 'libro.autores' => ['nombre']],
         );
 
-        $favoritos = $consulta->with('libro.autores')
+        $favoritos = $consulta->with('libro.autores', 'libro.licencias.prestamos')
             ->latest()
             ->paginate(12)
             ->withQueryString();

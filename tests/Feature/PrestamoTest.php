@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\Pago;
+use App\Models\Plan;
 use App\Models\Prestamo;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\CreaDatosBiblioteca;
 use Tests\TestCase;
 
@@ -242,6 +245,199 @@ class PrestamoTest extends TestCase
             ->get(route('prestamos.index', ['orden' => 'desc']))
             ->assertOk()
             ->assertSeeInOrder(['Libro reciente', 'Libro antiguo']);
+    }
+
+    public function test_el_libro_con_contador_se_presta_sin_suscripcion_y_vence_en_24_dias(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicenciaContada('Libro con contador', 2);
+
+        $this->actingAs($cliente)
+            ->post(route('prestamos.store', $libro))
+            ->assertRedirect(route('prestamos.index'))
+            ->assertSessionHas('status', 'Préstamo solicitado correctamente. Devuélvelo en 24 días.');
+
+        $prestamo = Prestamo::firstOrFail();
+
+        $this->assertSame(today()->addDays(Prestamo::DIAS_PLAZO_CON_CONTADOR)->toDateString(), $prestamo->f_finalizacion->toDateString());
+        $this->assertSame(1, $libro->licencias()->firstOrFail()->cantidad_lecturas);
+        $this->assertSame(0, $cliente->suscripciones()->count());
+    }
+
+    public function test_un_cliente_con_prestamo_puede_suscribirse_a_un_plan_y_seguir_leyendo_el_libro(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicenciaContada('Libro prestado y suscrito', 3);
+        $libro->update(['archivo_pdf' => 'libros/prestado-suscrito.pdf']);
+        Storage::disk('local')->put($libro->archivo_pdf, 'contenido del pdf');
+
+        $plan = Plan::create(['tipo' => 'anual', 'precio' => '99.00']);
+
+        $this->actingAs($cliente)
+            ->post(route('prestamos.store', $libro))
+            ->assertRedirect(route('prestamos.index'));
+
+        $this->actingAs($cliente)
+            ->get(route('prestamos.index'))
+            ->assertOk()
+            ->assertSee('Leer '.$libro->titulo, false);
+
+        $this->actingAs($cliente)
+            ->post(route('planes.suscribir', $plan))
+            ->assertRedirect();
+
+        $this->assertSame(1, $cliente->suscripciones()->where('estado', 'activa')->count());
+        $this->assertSame(1, $cliente->prestamos()->activos()->count());
+
+        $this->actingAs($cliente)
+            ->get(route('libros.leer', $libro))
+            ->assertOk();
+
+        $this->assertSame(2, $libro->licencias()->firstOrFail()->cantidad_lecturas);
+    }
+
+    public function test_un_cliente_suscrito_no_cambia_de_plan_pero_si_puede_prestarse_un_libro_con_contador(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $planActual = Plan::create(['tipo' => 'mensual', 'precio' => '9.99']);
+        $otroPlan = Plan::create(['tipo' => 'anual', 'precio' => '99.00']);
+        $this->activarSuscripcion($cliente, $planActual);
+
+        $libro = $this->crearLibroConLicenciaContada('Libro solo para préstamo', 2);
+        $libro->update(['archivo_pdf' => 'libros/solo-prestamo.pdf']);
+        Storage::disk('local')->put($libro->archivo_pdf, 'contenido del pdf');
+
+        $this->actingAs($cliente)
+            ->post(route('planes.suscribir', $otroPlan))
+            ->assertForbidden();
+
+        $this->actingAs($cliente)
+            ->post(route('planes.cancelar', $planActual))
+            ->assertForbidden();
+
+        $this->actingAs($cliente)
+            ->post(route('prestamos.store', $libro))
+            ->assertRedirect(route('prestamos.index'));
+
+        $this->actingAs($cliente)
+            ->get(route('libros.leer', $libro))
+            ->assertOk();
+
+        $this->assertSame(1, $cliente->suscripciones()->where('estado', 'activa')->count());
+        $this->assertSame($planActual->id, $cliente->suscripcionActiva()->firstOrFail()->plan_id);
+        $this->assertSame(1, $libro->licencias()->firstOrFail()->cantidad_lecturas);
+    }
+
+    public function test_el_prestamo_usa_los_dias_y_precio_configurados_y_registra_el_pago(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicenciaContada('Libro con tarifa', 2, 10, '12.50');
+        $libro->update(['archivo_pdf' => 'libros/tarifa.pdf']);
+
+        $this->actingAs($cliente)
+            ->get(route('libros.index'))
+            ->assertOk()
+            ->assertSee('Préstamo 12,50 · 10 días')
+            ->assertSee('Pagas 12,50 y lo devuelves en 10 días.');
+
+        $this->actingAs($cliente)
+            ->post(route('prestamos.store', $libro))
+            ->assertRedirect(route('prestamos.index'))
+            ->assertSessionHas('status', 'Préstamo solicitado correctamente. Devuélvelo en 10 días.');
+
+        $prestamo = Prestamo::firstOrFail();
+        $pago = Pago::firstOrFail();
+
+        $this->assertSame(today()->addDays(10)->toDateString(), $prestamo->f_finalizacion->toDateString());
+        $this->assertSame('12.50', (string) $pago->monto);
+        $this->assertSame($prestamo->id, $pago->prestamo_id);
+        $this->assertSame($cliente->id, $pago->user_id);
+        $this->assertNull($pago->suscripcion_id);
+        $this->assertSame(Pago::ESTADO_PAGADO, $pago->estado);
+
+        $this->actingAs($cliente)
+            ->get(route('prestamos.index'))
+            ->assertOk()
+            ->assertSee('Préstamo de 10 días · sin renovación')
+            ->assertSee('Pagado: 12,50');
+
+        $this->actingAs($cliente)
+            ->get(route('pagos.index'))
+            ->assertOk()
+            ->assertSee('Préstamo: Libro con tarifa');
+    }
+
+    public function test_un_libro_prestado_no_esta_disponible_para_otros_clientes_hasta_la_devolucion(): void
+    {
+        $ana = User::factory()->cliente()->create();
+        $luis = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicenciaContada('Libro compartido', 2);
+
+        $this->actingAs($ana)->post(route('prestamos.store', $libro))->assertRedirect();
+
+        $this->actingAs($luis)
+            ->post(route('prestamos.store', $libro))
+            ->assertForbidden();
+
+        $this->actingAs($luis)
+            ->get(route('libros.index'))
+            ->assertOk()
+            ->assertSee('Prestado a otro cliente');
+
+        $this->assertSame(1, Prestamo::where('licencia_id', $libro->licencias()->firstOrFail()->id)->count());
+
+        $this->actingAs($ana)->post(route('prestamos.devolver', Prestamo::firstOrFail()))->assertRedirect();
+
+        $this->actingAs($luis)
+            ->post(route('prestamos.store', $libro))
+            ->assertRedirect();
+
+        $this->assertSame(2, Prestamo::count());
+    }
+
+    public function test_al_agotarse_el_contador_el_libro_no_esta_disponible_ni_se_puede_leer(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicenciaContada('Libro agotado', 1);
+
+        $this->actingAs($cliente)->post(route('prestamos.store', $libro))->assertRedirect();
+        $this->actingAs($cliente)->post(route('prestamos.devolver', Prestamo::firstOrFail()))->assertRedirect();
+
+        $this->assertSame(0, $libro->licencias()->firstOrFail()->cantidad_lecturas);
+
+        $this->actingAs($cliente)
+            ->get(route('libros.index'))
+            ->assertOk()
+            ->assertSee('Sin lecturas')
+            ->assertSee('No disponible');
+
+        $this->actingAs($cliente)
+            ->post(route('prestamos.store', $libro))
+            ->assertForbidden();
+
+        $this->actingAs($cliente)
+            ->get(route('libros.leer', $libro))
+            ->assertForbidden();
+    }
+
+    public function test_los_prestamos_con_contador_no_se_pueden_renovar_y_muestran_el_plazo(): void
+    {
+        $cliente = User::factory()->cliente()->create();
+        $libro = $this->crearLibroConLicenciaContada('Libro sin renovación', 3);
+
+        $this->actingAs($cliente)->post(route('prestamos.store', $libro))->assertRedirect();
+        $prestamo = Prestamo::firstOrFail();
+
+        $this->actingAs($cliente)
+            ->post(route('prestamos.renovar', $prestamo))
+            ->assertStatus(422);
+
+        $this->assertSame(0, $prestamo->fresh()->renovaciones);
+
+        $this->actingAs($cliente)
+            ->get(route('prestamos.index'))
+            ->assertOk()
+            ->assertSee('Préstamo de 24 días · sin renovación');
     }
 
     private function crearPrestamoActivo(

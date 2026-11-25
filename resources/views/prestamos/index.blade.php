@@ -36,6 +36,15 @@
                 </thead>
                 <tbody>
                     @forelse ($prestamos as $prestamo)
+                        @php
+                            $libroPrestado = $prestamo->licencia?->libro;
+                            $puedeLeerPrestamo = $libroPrestado
+                                && $libroPrestado->archivo_pdf
+                                && $prestamo->estado === \App\Models\Prestamo::ESTADO_ACTIVO
+                                && ! $prestamo->estaVencido()
+                                && ($esStaff || $prestamo->user_id === auth()->id())
+                                && ($esStaff || ! auth()->user()->tieneAccesoLimitadoPorPrestamos());
+                        @endphp
                         <tr>
                             <td>
                                 <span class="cell-primary">{{ $prestamo->licencia?->libro?->titulo ?? 'Libro eliminado' }}</span>
@@ -48,7 +57,15 @@
                                 </td>
                             @endif
                             <td>{{ $prestamo->f_inicio?->format('d/m/Y') ?? '—' }}</td>
-                            <td>{{ $prestamo->f_finalizacion?->format('d/m/Y') ?? '—' }}</td>
+                            <td>
+                                {{ $prestamo->f_finalizacion?->format('d/m/Y') ?? '—' }}
+                                @if ($prestamo->esConContador())
+                                    <span class="cell-sub">Préstamo de {{ $prestamo->licencia?->diasPrestamo() ?? \App\Models\Licencia::DIAS_PRESTAMO_POR_DEFECTO }} días · sin renovación</span>
+                                @endif
+                                @if ($prestamo->pago)
+                                    <span class="cell-sub tabular-nums">Pagado: {{ number_format((float) $prestamo->pago->monto, 2, ',', '.') }}</span>
+                                @endif
+                            </td>
                             <td>
                                 @if ($prestamo->estaVencido())
                                     <x-z.badge variant="danger">Vencido</x-z.badge>
@@ -66,6 +83,14 @@
                             </td>
                             <td>
                                 <div class="z-row-actions">
+                                    @if ($puedeLeerPrestamo)
+                                        <a href="{{ route('libros.leer', $libroPrestado) }}?v={{ md5($libroPrestado->archivo_pdf ?? '') }}"
+                                           class="btn btn-secondary btn-sm"
+                                           aria-label="Leer {{ $libroPrestado->titulo }}">
+                                            <x-z.icon name="eye" class="size-4" />
+                                            Leer
+                                        </a>
+                                    @endif
                                     @if ($prestamo->puedeRenovarse() && ($esStaff || $prestamo->user_id === auth()->id()))
                                         <form method="POST" action="{{ route('prestamos.renovar', $prestamo) }}">
                                             @csrf

@@ -19,6 +19,14 @@ class Plan extends Model
 
     public const MODALIDAD_PAQUETE = 'paquete';
 
+    public const TIPO_MENSUAL = 'mensual';
+
+    public const TIPO_ANUAL = 'anual';
+
+    public const TIPO_DIAS = 'dias';
+
+    public const DIAS_POR_DEFECTO = 30;
+
     protected $table = 'planes';
 
     protected $fillable = [
@@ -29,6 +37,7 @@ class Plan extends Model
         'libro_id',
         'cantidad_libros',
         'trial_dias',
+        'duracion_dias',
         'beneficios',
     ];
 
@@ -42,6 +51,7 @@ class Plan extends Model
         return [
             'precio' => 'decimal:2',
             'trial_dias' => 'integer',
+            'duracion_dias' => 'integer',
             'cantidad_libros' => 'integer',
             'beneficios' => 'array',
         ];
@@ -54,7 +64,17 @@ class Plan extends Model
 
     public function esAnual(): bool
     {
-        return str_contains(strtolower($this->tipo ?? ''), 'anual');
+        return $this->tipo === self::TIPO_ANUAL;
+    }
+
+    public function esPorDias(): bool
+    {
+        return $this->tipo === self::TIPO_DIAS || $this->modalidad === self::MODALIDAD_LIBRO;
+    }
+
+    public function duracionEnDias(): int
+    {
+        return max(1, (int) ($this->duracion_dias ?? self::DIAS_POR_DEFECTO));
     }
 
     public function duracionEnMeses(): int
@@ -64,7 +84,23 @@ class Plan extends Model
 
     public function duracionEtiqueta(): string
     {
-        return $this->esAnual() ? '1 año' : '1 mes';
+        return $this->esPorDias()
+            ? $this->duracionEnDias().' '.($this->duracionEnDias() === 1 ? 'día' : 'días')
+            : ($this->esAnual() ? '1 año' : '1 mes');
+    }
+
+    public function tipoEtiqueta(): string
+    {
+        return $this->esPorDias()
+            ? 'Por días'
+            : ($this->esAnual() ? 'Anual' : 'Mensual');
+    }
+
+    public function periodoPrecioEtiqueta(): string
+    {
+        return $this->esPorDias()
+            ? 'por '.$this->duracionEtiqueta()
+            : ($this->esAnual() ? 'por año' : 'por mes');
     }
 
     public function suscripciones()

@@ -18,6 +18,9 @@ class Prestamo extends Model
 
     public const DIAS_PLAZO = 7;
 
+    /** Plazo de los libros con contador de lecturas en la licencia. */
+    public const DIAS_PLAZO_CON_CONTADOR = 24;
+
     public const MAX_RENOVACIONES = 1;
 
     protected $fillable = [
@@ -51,6 +54,11 @@ class Prestamo extends Model
     public function licencia()
     {
         return $this->belongsTo(Licencia::class);
+    }
+
+    public function pago()
+    {
+        return $this->hasOne(Pago::class);
     }
 
     public function libro()
@@ -96,9 +104,15 @@ class Prestamo extends Model
         ]);
     }
 
+    public function esConContador(): bool
+    {
+        return $this->licencia?->tieneContador() === true;
+    }
+
     public function puedeRenovarse(): bool
     {
         return $this->estado === self::ESTADO_ACTIVO
+            && ! $this->esConContador()
             && ! $this->estaVencido()
             && (int) $this->renovaciones < self::MAX_RENOVACIONES;
     }

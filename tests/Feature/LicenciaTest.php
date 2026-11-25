@@ -264,4 +264,120 @@ class LicenciaTest extends TestCase
             ->assertOk()
             ->assertSee('min="'.today()->toDateString().'"', false);
     }
+
+    public function test_el_formulario_de_licencias_incluye_el_campo_de_cantidad_de_lecturas(): void
+    {
+        $usuario = User::factory()->create();
+
+        $this->actingAs($usuario)
+            ->get(route('licencias.index'))
+            ->assertOk()
+            ->assertSee('Cantidad de lecturas')
+            ->assertSee('name="cantidad_lecturas"', false)
+            ->assertSee('placeholder="Sin límite"', false)
+            ->assertSee('Días de préstamo')
+            ->assertSee('name="dias_prestamo"', false)
+            ->assertSee('Precio del préstamo')
+            ->assertSee('name="precio_prestamo"', false);
+    }
+
+    public function test_puede_guardar_actualizar_y_dejar_sin_limite_el_contador_de_lecturas(): void
+    {
+        $usuario = User::factory()->create();
+        $libro = Libro::create([
+            'titulo' => 'Libro contado',
+            'descripcion' => 'Descripción del libro contado.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+        $editorial = LicenciaEditorial::create([
+            'nombre' => 'Licencia A',
+            'f_inicio' => '2026-01-01',
+            'f_finalizacion' => '2026-12-31',
+        ]);
+
+        $this->actingAs($usuario)
+            ->post(route('licencias.store'), [
+                'libro_id' => $libro->id,
+                'licencia_editorial_id' => $editorial->id,
+                'cantidad_lecturas' => '5',
+                'dias_prestamo' => '15',
+                'precio_prestamo' => '8.75',
+            ])
+            ->assertRedirect(route('licencias.index'));
+
+        $licencia = Licencia::firstOrFail();
+        $this->assertSame(5, $licencia->cantidad_lecturas);
+        $this->assertSame(15, $licencia->dias_prestamo);
+        $this->assertSame('8.75', (string) $licencia->precio_prestamo);
+
+        $this->actingAs($usuario)
+            ->put(route('licencias.update', $licencia), [
+                'libro_id' => $libro->id,
+                'licencia_editorial_id' => $editorial->id,
+                'cantidad_lecturas' => '3',
+            ])
+            ->assertRedirect(route('licencias.index'));
+        $this->assertSame(3, $licencia->fresh()->cantidad_lecturas);
+
+        $this->actingAs($usuario)
+            ->put(route('licencias.update', $licencia), [
+                'libro_id' => $libro->id,
+                'licencia_editorial_id' => $editorial->id,
+                'cantidad_lecturas' => '',
+            ])
+            ->assertRedirect(route('licencias.index'));
+        $this->assertNull($licencia->fresh()->cantidad_lecturas);
+    }
+
+    public function test_el_contador_de_lecturas_rechaza_valores_negativos(): void
+    {
+        $usuario = User::factory()->create();
+        $libro = Libro::create([
+            'titulo' => 'Libro contado',
+            'descripcion' => 'Descripción del libro contado.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+        $editorial = LicenciaEditorial::create([
+            'nombre' => 'Licencia A',
+            'f_inicio' => '2026-01-01',
+            'f_finalizacion' => '2026-12-31',
+        ]);
+
+        $this->actingAs($usuario)
+            ->post(route('licencias.store'), [
+                'libro_id' => $libro->id,
+                'licencia_editorial_id' => $editorial->id,
+                'cantidad_lecturas' => -1,
+            ])
+            ->assertSessionHasErrors('cantidad_lecturas');
+
+        $this->assertSame(0, Licencia::count());
+    }
+
+    public function test_los_dias_y_el_precio_del_prestamo_se_validan(): void
+    {
+        $usuario = User::factory()->create();
+        $libro = Libro::create([
+            'titulo' => 'Libro contado',
+            'descripcion' => 'Descripción del libro contado.',
+            'fecha_publicacion' => '2020-01-01',
+        ]);
+        $editorial = LicenciaEditorial::create([
+            'nombre' => 'Licencia A',
+            'f_inicio' => '2026-01-01',
+            'f_finalizacion' => '2026-12-31',
+        ]);
+
+        $this->actingAs($usuario)
+            ->post(route('licencias.store'), [
+                'libro_id' => $libro->id,
+                'licencia_editorial_id' => $editorial->id,
+                'cantidad_lecturas' => 2,
+                'dias_prestamo' => 0,
+                'precio_prestamo' => -1,
+            ])
+            ->assertSessionHasErrors(['dias_prestamo', 'precio_prestamo']);
+
+        $this->assertSame(0, Licencia::count());
+    }
 }
