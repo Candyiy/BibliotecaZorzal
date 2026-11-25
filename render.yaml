@@ -1,0 +1,58 @@
+# Blueprint de Render para Biblioteca Zorzal (Laravel 13 + Livewire).
+# Con este archivo: Dashboard -> New -> Blueprint -> seleccionas el repo.
+#
+# NOTA: el disco persistente y el plan "starter" son de pago.
+# Para una demo gratis: cambia `plan: starter` por `plan: free`
+# y borra el bloque `disk:` (los PDFs subidos se pierden en cada deploy).
+
+databases:
+  - name: biblioteca-db
+    databaseName: biblioteca
+    user: biblioteca
+    plan: free # gratis 30 dias; para produccion usa basic-256mb
+    region: virginia
+
+services:
+  - type: web
+    name: biblioteca
+    runtime: docker
+    plan: starter
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /up
+    autoDeploy: true
+    envVars:
+      - key: APP_NAME
+        value: Biblioteca Zorzal
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        sync: false # lo pegas en el dashboard (php artisan key:generate --show)
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: warning
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_URL
+        fromDatabase:
+          name: biblioteca-db
+          property: connectionString
+      - key: SESSION_DRIVER
+        value: database
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: FILESYSTEM_DISK
+        value: local
+      - key: MAIL_MAILER
+        value: log
+    disk:
+      name: biblioteca-storage
+      mountPath: /var/www/html/storage/app
+      sizeGB: 1

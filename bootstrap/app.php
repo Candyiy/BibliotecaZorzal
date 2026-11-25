@@ -14,6 +14,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Render (y otros proxies) terminan TLS: confiar en X-Forwarded-*
+        // para que Laravel genere URLs https y las cookies sean seguras.
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
             'cuenta-activa' => EnsureAccountIsActive::class,
